@@ -269,12 +269,12 @@ namespace LevelMaker
                     for (int z = 0; z < size.z; z++)
                     {
                         Vector3Int cellPos = gridPosition + new Vector3Int(x, y, z);
-                        
+
                         // Check each of the 6 adjacent directions for this cell
                         foreach (var offset in adjacentOffsets)
                         {
                             Vector3Int adjacentPos = cellPos + offset;
-                            
+
                             // If adjacent cell is occupied, we have a connection
                             if (occupiedCells.ContainsKey(adjacentPos))
                             {
@@ -284,7 +284,21 @@ namespace LevelMaker
                     }
                 }
             }
-            
+
+            // Also check column support: any block directly below the object
+            // This allows placing on top of a block even when no horizontal neighbor exists
+            for (int x = 0; x < size.x; x++)
+            {
+                for (int z = 0; z < size.z; z++)
+                {
+                    Vector3Int belowPos = new Vector3Int(gridPosition.x + x, gridPosition.y - 1, gridPosition.z + z);
+                    if (occupiedCells.ContainsKey(belowPos))
+                    {
+                        return true;
+                    }
+                }
+            }
+
             return false;
         }
 

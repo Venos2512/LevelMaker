@@ -18,7 +18,7 @@ namespace LevelMaker
         
         [Header("Camera Mode")]
         [SerializeField] private CameraMode currentMode = CameraMode.Topdown;
-        [SerializeField] private KeyCode toggleModeKey = KeyCode.V;
+        [SerializeField] private KeyCode toggleModeKey = KeyCode.Tab; // Tab to toggle camera mode (1/2 reserved for block types)
         
         [Header("Topdown Settings")]
         [SerializeField] private float topdownAngle = 60f;
@@ -289,9 +289,9 @@ namespace LevelMaker
                 ? "WASD: Pan\nScroll: Zoom\nMiddle Mouse: Drag"
                 : "Middle Mouse: Rotate\nWASD: Move\nSpace/Ctrl: Up/Down\nScroll: Zoom";
             
-            string cameraHelp = 
+            string cameraHelp =
                 $"=== CAMERA ({modeText}) ===\n" +
-                $"Press V to toggle mode\n" +
+                $"Press Tab to toggle mode\n" +
                 $"\n{controls}\n" +
                 $"Shift: Move faster";
             

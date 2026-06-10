@@ -1,260 +1,279 @@
-using UnityEngine;
-using UnityEditor;
+using System.Collections.Generic;
 using System.IO;
+using UnityEngine;
+using UnityEngine.UI;
 
 namespace LevelMaker
 {
     /// <summary>
-    /// UI Manager for Level Builder - handles saving to prefab
+    /// UGUI-based UI for LevelBuilder: mode buttons, debug panel, library panel
+    /// Attach to a Canvas in the scene with buttons pre-wired via inspector
     /// </summary>
     public class LevelBuilderUI : MonoBehaviour
     {
         [Header("References")]
         [SerializeField] private LevelBuilder levelBuilder;
-        [SerializeField] private GridManager gridManager;
-        
-        [Header("Save Settings")]
-        [SerializeField] private string prefabSavePath = "Assets/Prefabs/Levels/";
-        [SerializeField] private string defaultLevelName = "NewLevel";
-        
-        private string currentLevelName;
-        private bool showSaveDialog = false;
+        [SerializeField] private BlockLibrary blockLibrary;
+
+        [Header("UI References")]
+        [SerializeField] private Button buildButton;
+        [SerializeField] private Button eraseButton;
+        [SerializeField] private Button selectButton;
+        [SerializeField] private Text currentModeText;
+        [SerializeField] private Text debugText;
+        [SerializeField] private Text currentSelectionText;
+        [SerializeField] private GameObject libraryPanel;
+        [SerializeField] private Transform libraryContent;
+        [SerializeField] private GameObject libraryItemPrefab;
+        [SerializeField] private Text undoCountText;
+        [SerializeField] private Toggle libraryToggle;
+
+        [Header("Settings")]
+        [SerializeField] private string resourcesRoot = "BlockPrefabs";
+        [SerializeField] private Color selectedItemColor = new Color(0.3f, 0.7f, 0.3f, 0.9f);
+        [SerializeField] private Color normalItemColor = new Color(0.2f, 0.2f, 0.2f, 0.8f);
+
+        // Currently selected library item (for visual highlight)
+        private GameObject selectedItemObj;
+        private Image selectedItemBg;
+        private string currentlySelectedItemName;
 
         private void Start()
         {
-            if (levelBuilder == null)
-                levelBuilder = FindObjectOfType<LevelBuilder>();
-                
-            if (gridManager == null)
-                gridManager = FindObjectOfType<GridManager>();
-                
-            currentLevelName = defaultLevelName;
-            
-            // Ensure save directory exists
-            if (!Directory.Exists(prefabSavePath))
+            // Disable buttons until wiring is complete
+            if (buildButton != null) buildButton.interactable = false;
+            if (eraseButton != null) eraseButton.interactable = false;
+            if (selectButton != null) selectButton.interactable = false;
+
+            // Defer wiring to next frame to ensure all references are set (especially when auto-created at runtime)
+            StartCoroutine(WireUpNextFrame());
+        }
+
+        private System.Collections.IEnumerator WireUpNextFrame()
+        {
+            yield return null; // Wait one frame
+
+            if (levelBuilder == null) levelBuilder = FindObjectOfType<LevelBuilder>();
+            if (blockLibrary == null) blockLibrary = FindObjectOfType<BlockLibrary>();
+
+            // Wire up button events with null checks
+            if (buildButton != null)
             {
-                Directory.CreateDirectory(prefabSavePath);
+                buildButton.onClick.AddListener(() => {
+                    if (levelBuilder != null) levelBuilder.SetMode(LevelBuilder.BuildMode.Build);
+                });
+                buildButton.interactable = true;
+            }
+            if (eraseButton != null)
+            {
+                eraseButton.onClick.AddListener(() => {
+                    if (levelBuilder != null) levelBuilder.SetMode(LevelBuilder.BuildMode.Erase);
+                });
+                eraseButton.interactable = true;
+            }
+            if (selectButton != null)
+            {
+                selectButton.onClick.AddListener(() => {
+                    if (levelBuilder != null) levelBuilder.SetMode(LevelBuilder.BuildMode.Select);
+                });
+                selectButton.interactable = true;
+            }
+
+            // Auto-build library if libraryContent is set
+            if (libraryContent != null && libraryItemPrefab != null)
+            {
+                BuildLibraryUI();
             }
         }
 
         private void Update()
         {
-            // Press P to open save dialog
-            if (Input.GetKeyDown(KeyCode.P))
+            UpdateDebug();
+        }
+
+        private void UpdateDebug()
+        {
+            if (debugText != null && levelBuilder != null)
             {
-                showSaveDialog = !showSaveDialog;
+                var mode = levelBuilder.GetMode();
+                int itemCount = blockLibrary != null ? blockLibrary.GetItemCount() : 0;
+                debugText.text = $"Mode: {mode} | Library items: {itemCount}";
             }
-            
-            // Quick save with Ctrl+S
-            if (Input.GetKey(KeyCode.LeftControl) && Input.GetKeyDown(KeyCode.S))
+
+            if (undoCountText != null && levelBuilder != null)
             {
-                SaveLevel(currentLevelName);
+                undoCountText.text = $"Undo: {levelBuilder.GetUndoCount()}";
+            }
+
+            if (currentSelectionText != null && levelBuilder != null)
+            {
+                currentSelectionText.text = $"Selected: {levelBuilder.GetBlockTypeName()}";
             }
         }
 
-        private void DrawSaveDialog()
+        /// <summary>
+        /// Auto-generate library UI from Resources/BlockPrefabs/
+        /// </summary>
+        public void BuildLibraryUI()
         {
-            int dialogWidth = 400;
-            int dialogHeight = 250;
-            int dialogX = Screen.width / 2 - dialogWidth / 2;
-            int dialogY = Screen.height / 2 - dialogHeight / 2;
-            
-            GUIStyle boxStyle = new GUIStyle(GUI.skin.box);
-            boxStyle.normal.background = MakeTex(2, 2, new Color(0.1f, 0.1f, 0.1f, 0.95f));
-            
-            GUI.Box(new Rect(dialogX, dialogY, dialogWidth, dialogHeight), "", boxStyle);
-            
-            GUILayout.BeginArea(new Rect(dialogX + 20, dialogY + 20, dialogWidth - 40, dialogHeight - 40));
-            
-            GUIStyle titleStyle = new GUIStyle(GUI.skin.label);
-            titleStyle.fontSize = 20;
-            titleStyle.fontStyle = FontStyle.Bold;
-            titleStyle.normal.textColor = Color.white;
-            GUILayout.Label("Save Level as Prefab", titleStyle);
-            
-            GUILayout.Space(20);
-            
-            GUILayout.Label("Level Name:", GUI.skin.label);
-            currentLevelName = GUILayout.TextField(currentLevelName, 50);
-            
-            GUILayout.Space(10);
-            
-            GUILayout.Label($"Save Path: {prefabSavePath}", GUI.skin.label);
-            
-            GUILayout.Space(20);
-            
-            GUILayout.BeginHorizontal();
-            
-            if (GUILayout.Button("Save", GUILayout.Height(40)))
+            if (libraryContent == null || libraryItemPrefab == null) return;
+
+            // Clear existing
+            foreach (Transform child in libraryContent)
             {
-                SaveLevel(currentLevelName);
-                showSaveDialog = false;
+                Destroy(child.gameObject);
             }
-            
-            if (GUILayout.Button("Cancel", GUILayout.Height(40)))
+
+            // Reset selection state
+            selectedItemObj = null;
+            selectedItemBg = null;
+            currentlySelectedItemName = null;
+            firstItemInfo = null;
+
+            string fullPath = Path.Combine(Application.dataPath, "Resources", resourcesRoot);
+            if (!Directory.Exists(fullPath)) return;
+
+            // Scan subfolders
+            foreach (var dir in Directory.GetDirectories(fullPath))
             {
-                showSaveDialog = false;
+                string folderName = Path.GetFileName(dir);
+                CreateFolderSection(folderName, dir);
             }
-            
-            GUILayout.EndHorizontal();
-            
-            GUILayout.Space(20);
-            
-            GUIStyle helpStyle = new GUIStyle(GUI.skin.label);
-            helpStyle.fontSize = 10;
-            helpStyle.normal.textColor = Color.gray;
-            GUILayout.Label("This will save all blocks under GridManager as a prefab.", helpStyle);
-            
-            GUILayout.EndArea();
+
+            // Also add root prefabs
+            string[] rootPrefabs = Directory.GetFiles(fullPath, "*.prefab");
+            if (rootPrefabs.Length > 0)
+            {
+                CreateFolderSection("Root", fullPath);
+            }
+
+            // Auto-select first item as default (always have 1 selected)
+            if (firstItemInfo.HasValue)
+            {
+                var info = firstItemInfo.Value;
+                if (info.itemObj != null)
+                {
+                    OnLibraryItemClicked(info.itemName, info.itemObj, info.itemBg);
+                }
+            }
         }
 
-        public void SaveLevel(string levelName)
+        private struct FirstItemInfo
         {
-            if (gridManager == null)
+            public string itemName;
+            public GameObject itemObj;
+            public Image itemBg;
+        }
+        private FirstItemInfo? firstItemInfo;
+
+        private void CreateFolderSection(string folderName, string folderPath)
+        {
+            // Create header
+            GameObject headerObj = new GameObject($"Header_{folderName}");
+            headerObj.transform.SetParent(libraryContent, false);
+            Text headerText = headerObj.AddComponent<Text>();
+            headerText.text = $"[{folderName}]";
+            headerText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            headerText.fontSize = 14;
+            headerText.color = Color.cyan;
+            headerText.fontStyle = FontStyle.Bold;
+            headerObj.AddComponent<LayoutElement>().preferredHeight = 22;
+
+            // Create items
+            foreach (var prefabFile in Directory.GetFiles(folderPath, "*.prefab"))
             {
-                Debug.LogError("GridManager not found! Cannot save level.");
+                string fileName = Path.GetFileNameWithoutExtension(prefabFile);
+                CreateLibraryItem(fileName, prefabFile);
+            }
+        }
+
+        private void CreateLibraryItem(string itemName, string prefabPath)
+        {
+            GameObject itemObj = Instantiate(libraryItemPrefab, libraryContent);
+            itemObj.name = $"Item_{itemName}";
+            itemObj.SetActive(true);
+
+            Text nameText = itemObj.GetComponentInChildren<Text>();
+            if (nameText != null) nameText.text = itemName;
+
+            // Make the whole item clickable (not just the "Use" button)
+            Image itemBg = itemObj.GetComponent<Image>();
+            Button itemButton = itemObj.GetComponent<Button>();
+            if (itemButton == null)
+            {
+                itemButton = itemObj.AddComponent<Button>();
+                itemButton.targetGraphic = itemBg;
+            }
+            // Disable the "Use" child button if exists - whole item is clickable
+            Button useButton = itemObj.GetComponentInChildren<Button>();
+            if (useButton != null && useButton.gameObject != itemObj)
+            {
+                useButton.gameObject.SetActive(false);
+            }
+
+            // Wire click handler
+            string capturedName = itemName;
+            Image capturedBg = itemBg;
+            itemButton.onClick.AddListener(() => OnLibraryItemClicked(capturedName, itemObj, capturedBg));
+
+            // Track first item for auto-select default
+            if (!firstItemInfo.HasValue)
+            {
+                firstItemInfo = new FirstItemInfo
+                {
+                    itemName = itemName,
+                    itemObj = itemObj,
+                    itemBg = itemBg
+                };
+            }
+        }
+
+        private void OnLibraryItemClicked(string itemName, GameObject itemObj, Image itemBg)
+        {
+            if (levelBuilder == null)
+            {
+                Debug.LogWarning("[LevelBuilderUI] levelBuilder is null!");
                 return;
             }
-            
-            if (string.IsNullOrEmpty(levelName))
+
+            // Always have 1 item selected - clicking same item does nothing (no toggle-off)
+            if (currentlySelectedItemName == itemName)
             {
-                levelName = defaultLevelName;
+                return;
             }
-            
-            // Sanitize filename
-            levelName = SanitizeFileName(levelName);
-            
-#if UNITY_EDITOR
-            // Ensure directory exists
-            if (!Directory.Exists(prefabSavePath))
+
+            // Deselect previous
+            if (selectedItemBg != null)
             {
-                Directory.CreateDirectory(prefabSavePath);
+                selectedItemBg.color = normalItemColor;
             }
-            
-            string prefabPath = Path.Combine(prefabSavePath, levelName + ".prefab");
-            
-            // Create a temporary parent to hold all blocks
-            GameObject levelContainer = new GameObject(levelName);
-            
-            // Move all blocks to the container
-            Transform gridTransform = gridManager.transform;
-            int childCount = gridTransform.childCount;
-            Transform[] children = new Transform[childCount];
-            
-            for (int i = 0; i < childCount; i++)
-            {
-                children[i] = gridTransform.GetChild(i);
-            }
-            
-            foreach (Transform child in children)
-            {
-                // Only move objects that are placed blocks (check GridManager metadata)
-                if (gridManager.IsPlacedBlock(child.gameObject))
-                {
-                    child.SetParent(levelContainer.transform);
-                }
-            }
-            
-            // Save as prefab
-            GameObject prefab = PrefabUtility.SaveAsPrefabAsset(levelContainer, prefabPath);
-            
-            if (prefab != null)
-            {
-                Debug.Log($"Level saved successfully to: {prefabPath}");
-                
-                // Move blocks back to GridManager
-                childCount = levelContainer.transform.childCount;
-                children = new Transform[childCount];
-                
-                for (int i = 0; i < childCount; i++)
-                {
-                    children[i] = levelContainer.transform.GetChild(i);
-                }
-                
-                foreach (Transform child in children)
-                {
-                    child.SetParent(gridTransform);
-                }
-                
-                // Destroy temporary container
-                DestroyImmediate(levelContainer);
-                
-                // Show success message
-                ShowSuccessMessage($"Level '{levelName}' saved!");
-            }
-            else
-            {
-                Debug.LogError("Failed to save prefab!");
-                DestroyImmediate(levelContainer);
-            }
-#else
-            Debug.LogWarning("Saving prefabs is only available in the Editor!");
-#endif
+
+            // Select new
+            PrimitiveType type = GuessPrimitiveFromName(itemName);
+            levelBuilder.SetBlockType(type);
+
+            // Highlight new selection
+            if (itemBg != null) itemBg.color = selectedItemColor;
+            selectedItemObj = itemObj;
+            selectedItemBg = itemBg;
+            currentlySelectedItemName = itemName;
+
+            Debug.Log($"[LevelBuilderUI] Selected: {itemName} (Type: {type})");
         }
 
-        private string SanitizeFileName(string fileName)
+        private PrimitiveType GuessPrimitiveFromName(string name)
         {
-            char[] invalids = Path.GetInvalidFileNameChars();
-            foreach (char c in invalids)
-            {
-                fileName = fileName.Replace(c, '_');
-            }
-            return fileName;
+            string lower = name.ToLower();
+            if (lower.Contains("sphere") || lower.Contains("ball") || lower.Contains("lamp")) return PrimitiveType.Sphere;
+            if (lower.Contains("cylinder") || lower.Contains("pillar") || lower.Contains("column")) return PrimitiveType.Cylinder;
+            if (lower.Contains("capsule")) return PrimitiveType.Capsule;
+            if (lower.Contains("plane") || lower.Contains("floor")) return PrimitiveType.Plane;
+            return PrimitiveType.Cube;
         }
 
-        private Texture2D MakeTex(int width, int height, Color col)
-        {
-            Color[] pix = new Color[width * height];
-            for (int i = 0; i < pix.Length; i++)
-                pix[i] = col;
-            Texture2D result = new Texture2D(width, height);
-            result.SetPixels(pix);
-            result.Apply();
-            return result;
-        }
-
-        private float successMessageTime = 0f;
-        private string successMessageText = "";
-
-        private void ShowSuccessMessage(string message)
-        {
-            successMessageText = message;
-            successMessageTime = Time.time + 3f;
-        }
-
-        private void OnGUI()
-        {
-            // Save dialog
-            if (showSaveDialog)
-            {
-                DrawSaveDialog();
-            }
-            else
-            {
-                // Quick instructions in corner
-                GUIStyle style = new GUIStyle(GUI.skin.box);
-                style.fontSize = 12;
-                style.alignment = TextAnchor.UpperRight;
-                style.normal.textColor = Color.white;
-                
-                string quickHelp = 
-                    "P: Save Menu\n" +
-                    "Ctrl+S: Quick Save";
-                
-                GUI.Box(new Rect(Screen.width - 160, 10, 150, 60), quickHelp, style);
-            }
-            
-            // Success message
-            if (Time.time < successMessageTime)
-            {
-                GUIStyle successStyle = new GUIStyle(GUI.skin.box);
-                successStyle.fontSize = 16;
-                successStyle.alignment = TextAnchor.MiddleCenter;
-                successStyle.normal.textColor = Color.green;
-                successStyle.fontStyle = FontStyle.Bold;
-                
-                GUI.Box(new Rect(Screen.width / 2 - 150, 80, 300, 50), successMessageText, successStyle);
-            }
-        }
+        // Public API for buttons
+        public void OnBuildButtonClicked() { if (levelBuilder != null) levelBuilder.SetMode(LevelBuilder.BuildMode.Build); }
+        public void OnEraseButtonClicked() { if (levelBuilder != null) levelBuilder.SetMode(LevelBuilder.BuildMode.Erase); }
+        public void OnSelectButtonClicked() { if (levelBuilder != null) levelBuilder.SetMode(LevelBuilder.BuildMode.Select); }
     }
 }
