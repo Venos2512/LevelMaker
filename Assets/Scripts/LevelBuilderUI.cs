@@ -153,7 +153,7 @@ namespace LevelMaker
                 var info = firstItemInfo.Value;
                 if (info.itemObj != null)
                 {
-                    OnLibraryItemClicked(info.itemName, info.itemObj, info.itemBg);
+                    OnLibraryItemClicked(info.itemName, info.prefabPath, info.itemObj, info.itemBg);
                 }
             }
         }
@@ -161,6 +161,7 @@ namespace LevelMaker
         private struct FirstItemInfo
         {
             public string itemName;
+            public string prefabPath;
             public GameObject itemObj;
             public Image itemBg;
         }
@@ -204,17 +205,22 @@ namespace LevelMaker
                 itemButton = itemObj.AddComponent<Button>();
                 itemButton.targetGraphic = itemBg;
             }
-            // Disable the "Use" child button if exists - whole item is clickable
-            Button useButton = itemObj.GetComponentInChildren<Button>();
-            if (useButton != null && useButton.gameObject != itemObj)
+            // Remove ALL child buttons (e.g. "Use" button from template) to prevent double-click
+            Button[] allButtons = itemObj.GetComponentsInChildren<Button>(true);
+            foreach (var btn in allButtons)
             {
-                useButton.gameObject.SetActive(false);
+                if (btn.gameObject != itemObj)
+                {
+                    btn.onClick.RemoveAllListeners(); // Remove any old listeners
+                    Destroy(btn.gameObject); // Destroy the child button entirely
+                }
             }
 
-            // Wire click handler
+            // Wire click handler - pass prefabPath for loading
             string capturedName = itemName;
+            string capturedPath = prefabPath;
             Image capturedBg = itemBg;
-            itemButton.onClick.AddListener(() => OnLibraryItemClicked(capturedName, itemObj, capturedBg));
+            itemButton.onClick.AddListener(() => OnLibraryItemClicked(capturedName, capturedPath, itemObj, capturedBg));
 
             // Track first item for auto-select default
             if (!firstItemInfo.HasValue)
@@ -222,13 +228,14 @@ namespace LevelMaker
                 firstItemInfo = new FirstItemInfo
                 {
                     itemName = itemName,
+                    prefabPath = prefabPath,
                     itemObj = itemObj,
                     itemBg = itemBg
                 };
             }
         }
 
-        private void OnLibraryItemClicked(string itemName, GameObject itemObj, Image itemBg)
+        private void OnLibraryItemClicked(string itemName, string prefabPath, GameObject itemObj, Image itemBg)
         {
             if (levelBuilder == null)
             {
@@ -248,17 +255,34 @@ namespace LevelMaker
                 selectedItemBg.color = normalItemColor;
             }
 
-            // Select new
-            PrimitiveType type = GuessPrimitiveFromName(itemName);
-            levelBuilder.SetBlockType(type);
+            // Try to load the prefab from Resources (path like "BlockPrefabs/Basic/Ball_1x1x1")
+            GameObject prefab = null;
+            string resourcesPath = null;
+            if (!string.IsNullOrEmpty(prefabPath))
+            {
+                prefab = LoadPrefabFresh(prefabPath, out resourcesPath);
+            }
+
+            // Set on LevelBuilder - either prefab or fallback primitive
+            if (prefab != null)
+            {
+                PrimitiveType fallbackType = GuessPrimitiveFromName(itemName);
+                levelBuilder.SetPrefab(prefab, resourcesPath, fallbackType);
+                Debug.Log($"[LevelBuilderUI] Selected prefab: {itemName} (path: {prefabPath})");
+            }
+            else
+            {
+                // Fallback: use primitive type guessed from name
+                PrimitiveType type = GuessPrimitiveFromName(itemName);
+                levelBuilder.SetBlockType(type);
+                Debug.Log($"[LevelBuilderUI] Selected primitive: {itemName} (Type: {type}) - prefab not found");
+            }
 
             // Highlight new selection
             if (itemBg != null) itemBg.color = selectedItemColor;
             selectedItemObj = itemObj;
             selectedItemBg = itemBg;
             currentlySelectedItemName = itemName;
-
-            Debug.Log($"[LevelBuilderUI] Selected: {itemName} (Type: {type})");
         }
 
         private PrimitiveType GuessPrimitiveFromName(string name)
@@ -269,6 +293,54 @@ namespace LevelMaker
             if (lower.Contains("capsule")) return PrimitiveType.Capsule;
             if (lower.Contains("plane") || lower.Contains("floor")) return PrimitiveType.Plane;
             return PrimitiveType.Cube;
+        }
+
+        /// <summary>
+        /// Load prefab from Assets path, forcing fresh load in Editor (bypassing Resources cache).
+        /// Returns the loaded GameObject prefab and the corresponding Resources path.
+        /// </summary>
+        private GameObject LoadPrefabFresh(string inputPath, out string resourcesPath)
+        {
+            resourcesPath = null;
+            if (string.IsNullOrEmpty(inputPath)) return null;
+
+            // Convert to Assets-relative path
+            // Input might be: "E:\Horus\LevelMaker\Assets\Resources\BlockPrefabs\Basic\Ball_1x1x1.prefab"
+            // or: "Assets/Resources/BlockPrefabs/Basic/Ball_1x1x1.prefab"
+            string assetsPath = inputPath.Replace('\\', '/');
+            const string projectRoot = "Assets/";
+            int idx = assetsPath.IndexOf(projectRoot);
+            if (idx >= 0)
+            {
+                assetsPath = assetsPath.Substring(idx);
+            }
+            else
+            {
+                Debug.LogWarning($"[LevelBuilderUI] Path does not contain 'Assets/': {inputPath}");
+                return null;
+            }
+
+            // Convert Assets path to Resources path
+            // "Assets/Resources/BlockPrefabs/Basic/Ball_1x1x1.prefab" -> "BlockPrefabs/Basic/Ball_1x1x1"
+            resourcesPath = assetsPath;
+            const string prefix = "Assets/Resources/";
+            if (resourcesPath.StartsWith(prefix))
+            {
+                resourcesPath = resourcesPath.Substring(prefix.Length);
+            }
+            if (resourcesPath.EndsWith(".prefab"))
+            {
+                resourcesPath = resourcesPath.Substring(0, resourcesPath.Length - 7);
+            }
+
+            Debug.Log($"[LevelBuilderUI.LoadPrefabFresh] assetsPath='{assetsPath}', resourcesPath='{resourcesPath}'");
+
+            // Use bridge for fresh load in Editor (bypasses Resources cache)
+            GameObject fresh = PrefabLoaderBridge.LoadPrefabFresh(assetsPath);
+            if (fresh != null) return fresh;
+
+            // Fallback: load from Resources (may use cached version)
+            return Resources.Load<GameObject>(resourcesPath);
         }
 
         // Public API for buttons

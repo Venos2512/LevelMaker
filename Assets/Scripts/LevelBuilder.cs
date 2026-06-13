@@ -26,6 +26,8 @@ namespace LevelMaker
         [Header("Block Types")]
         [SerializeField] private PrimitiveType currentBlockType = PrimitiveType.Cube;
         [SerializeField] private Vector3Int currentBlockSize = Vector3Int.one;
+        [SerializeField] private GameObject currentPrefab; // Selected prefab from library (null = use primitive)
+        [SerializeField] private string currentPrefabResourcesPath; // Resources path for re-loading
 
         [Header("Preview Settings")]
         [SerializeField] private Color validColor = new Color(0.3f, 1f, 0.3f, 1f);
@@ -940,7 +942,25 @@ namespace LevelMaker
         public void SetBlockType(PrimitiveType type)
         {
             currentBlockType = type;
+            // Don't clear prefab here - user might want to keep prefab selection
+            // Only clear if explicitly requested
         }
+
+        public void ClearPrefab()
+        {
+            currentPrefab = null;
+            currentPrefabResourcesPath = null;
+        }
+
+        public void SetPrefab(GameObject prefab, string resourcesPath = null, PrimitiveType fallbackType = PrimitiveType.Cube)
+        {
+            currentPrefab = prefab;
+            currentPrefabResourcesPath = resourcesPath;
+            currentBlockType = fallbackType; // Used for metadata / preview sizing
+            Debug.Log($"[LevelBuilder.SetPrefab] prefab={prefab?.name} (ID={prefab?.GetInstanceID()}), fallbackType={fallbackType}");
+        }
+
+        public GameObject GetCurrentPrefab() => currentPrefab;
 
         public void SetBlockSize(Vector3Int size)
         {
@@ -970,19 +990,47 @@ namespace LevelMaker
 
         private void PlaceBlock()
         {
-            GameObject obj = GameObject.CreatePrimitive(currentBlockType);
-            obj.name = $"{currentBlockType}_{currentBlockSize.x}x{currentBlockSize.y}x{currentBlockSize.z}";
+            GameObject obj;
 
-            Vector3 worldScale = gridManager.GetWorldScale(currentBlockSize);
-            Vector3 correctedScale = GetCorrectedScale(worldScale, currentBlockType);
-            Vector3 placementPosition = hoverPosition + new Vector3(0, correctedScale.y * 0.5f, 0);
+            // If a prefab is selected from library, instantiate it
+            if (currentPrefab != null)
+            {
+                Debug.Log($"[LevelBuilder.PlaceBlock] Using prefab: {currentPrefab.name} (ID={currentPrefab.GetInstanceID()})");
+                obj = Instantiate(currentPrefab);
+                obj.name = currentPrefab.name;
+            }
+            else
+            {
+                Debug.Log($"[LevelBuilder.PlaceBlock] Using primitive: {currentBlockType} (prefab is NULL!)");
+                // Fallback: create primitive
+                obj = GameObject.CreatePrimitive(currentBlockType);
+                obj.name = $"{currentBlockType}_{currentBlockSize.x}x{currentBlockSize.y}x{currentBlockSize.z}";
+            }
+
+            Vector3 placementPosition;
+
+            if (currentPrefab != null)
+            {
+                // For prefabs: keep the prefab's original localScale (don't override)
+                // Position at bottom-aligned (offset by half the prefab's bounding box)
+                placementPosition = hoverPosition + new Vector3(0, obj.transform.localScale.y * 0.5f, 0);
+            }
+            else
+            {
+                // For primitives: apply corrected scale (handle non-1x1x1 sizes)
+                Vector3 worldScale = gridManager.GetWorldScale(currentBlockSize);
+                Vector3 correctedScale = GetCorrectedScale(worldScale, currentBlockType);
+                obj.transform.localScale = correctedScale;
+                placementPosition = hoverPosition + new Vector3(0, correctedScale.y * 0.5f, 0);
+            }
 
             obj.transform.position = placementPosition;
             obj.transform.rotation = Quaternion.identity;
-            obj.transform.localScale = correctedScale;
             obj.transform.SetParent(gridManager.transform);
 
-            gridManager.OccupyCells(gridHoverPosition, currentBlockSize, obj, currentBlockType.ToString());
+            // Use prefab name for metadata if prefab is set, else block type
+            string blockTypeName = currentPrefab != null ? currentPrefab.name : currentBlockType.ToString();
+            gridManager.OccupyCells(gridHoverPosition, currentBlockSize, obj, blockTypeName);
 
             // Record undo action
             RecordUndo(new PlaceBlockAction(gridManager, obj, gridHoverPosition, currentBlockSize));
@@ -996,22 +1044,43 @@ namespace LevelMaker
             // Deactivate instead of destroy so we can restore
             oldBlock.SetActive(false);
 
-            GameObject newBlock = GameObject.CreatePrimitive(currentBlockType);
-            newBlock.name = $"{currentBlockType}_{currentBlockSize.x}x{currentBlockSize.y}x{currentBlockSize.z}";
+            GameObject newBlock;
+            if (currentPrefab != null)
+            {
+                newBlock = Instantiate(currentPrefab);
+                newBlock.name = currentPrefab.name;
+            }
+            else
+            {
+                newBlock = GameObject.CreatePrimitive(currentBlockType);
+                newBlock.name = $"{currentBlockType}_{currentBlockSize.x}x{currentBlockSize.y}x{currentBlockSize.z}";
+            }
 
-            Vector3 worldScale = gridManager.GetWorldScale(currentBlockSize);
-            Vector3 correctedScale = GetCorrectedScale(worldScale, currentBlockType);
-            Vector3 placementPosition = hoverPosition + new Vector3(0, correctedScale.y * 0.5f, 0);
+            Vector3 placementPosition;
+
+            if (currentPrefab != null)
+            {
+                // For prefabs: keep original scale
+                placementPosition = hoverPosition + new Vector3(0, newBlock.transform.localScale.y * 0.5f, 0);
+            }
+            else
+            {
+                // For primitives: apply corrected scale
+                Vector3 worldScale = gridManager.GetWorldScale(currentBlockSize);
+                Vector3 correctedScale = GetCorrectedScale(worldScale, currentBlockType);
+                newBlock.transform.localScale = correctedScale;
+                placementPosition = hoverPosition + new Vector3(0, correctedScale.y * 0.5f, 0);
+            }
 
             newBlock.transform.position = placementPosition;
             newBlock.transform.rotation = Quaternion.identity;
-            newBlock.transform.localScale = correctedScale;
             newBlock.transform.SetParent(gridManager.transform);
 
-            gridManager.OccupyCells(gridHoverPosition, currentBlockSize, newBlock, currentBlockType.ToString());
+            string blockTypeName = currentPrefab != null ? currentPrefab.name : currentBlockType.ToString();
+            gridManager.OccupyCells(gridHoverPosition, currentBlockSize, newBlock, blockTypeName);
 
             // Record undo: replace = delete old + place new
-            RecordUndo(new ReplaceBlockAction(gridManager, oldBlock, newBlock, oldMetadata.gridPosition, currentBlockSize, currentBlockType.ToString()));
+            RecordUndo(new ReplaceBlockAction(gridManager, oldBlock, newBlock, oldMetadata.gridPosition, currentBlockSize, blockTypeName));
         }
 
         private void DeleteBlock(GameObject block)
