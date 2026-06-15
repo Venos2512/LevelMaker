@@ -1,0 +1,142 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!21 &2100000
+Material:
+  serializedVersion: 8
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: Level14_PalmTreesMat
+  m_Shader: {fileID: 4800000, guid: 646f7116632af7a47b5d0d595344186c, type: 3}
+  m_Parent: {fileID: 0}
+  m_ModifiedSerializedProperties: 0
+  m_ValidKeywords:
+  - _ALPHATEST_ON
+  m_InvalidKeywords:
+  - TCP2_REFLECTIONS_FRESNEL
+  - TCP2_RIM_LIGHTING
+  - TCP2_SHADOW_LIGHT_COLOR
+  - TCP2_SPECULAR_STYLIZED
+  - TCP2_UV_NORMALS_FULL
+  - TCP2_WIND
+  - _ALPHAPREMULTIPLY_ON
+  m_LightmapFlags: 4
+  m_EnableInstancingVariants: 1
+  m_DoubleSidedGI: 0
+  m_CustomRenderQueue: -1
+  stringTagMap: {}
+  disabledShaderPasses: []
+  m_LockedProperties:
+  m_SavedProperties:
+    serializedVersion: 3
+    m_TexEnvs:
+      _MainTex:
+        m_Texture: {fileID: 2800000, guid: 2c6dfe6ee2ba1424ab4e0834b062d363, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    m_Ints: {}
+    m_Floats:
+      _AO: 1
+      _AlphaClip: 0.88
+      _BumpScale: 1
+      _Cull: 2
+      _Cutoff: 0.061
+      _DetailNormalMapScale: 1
+      _DirectIntensityOutline: 1
+      _DstBlend: 10
+      _EmissionChannel: 4
+      _FresnelMax: 1.025
+      _FresnelMin: 0.226
+      _GlossMapScale: 1
+      _Glossiness: 0.5
+      _GlossyReflections: 1
+      _IndirectIntensity: 1
+      _IndirectIntensityOutline: 0
+      _MatCapMaskChannel: 0
+      _MatCapType: 0
+      _MaxHeight: 30.75
+      _Metallic: 0
+      _MinHeight: -0.34
+      _Mode: 0
+      _NormalsSource: 0
+      _NormalsUVType: 0
+      _OcclusionChannel: 0
+      _OcclusionStrength: 1
+      _OutlineLightingType: 0
+      _OutlineLightingTypeURP: 0
+      _OutlineMinWidth: 1
+      _OutlinePixelSizeType: 0
+      _OutlineTextureLOD: 5
+      _OutlineTextureType: 0
+      _OutlineWidth: 1
+      _Parallax: 0.02
+      _RampBands: 5
+      _RampBandsSmoothing: 0.628
+      _RampOffset: 0
+      _RampScale: 1
+      _RampSmooth: 1
+      _RampSmoothing: 0.598
+      _RampThreshold: 0.437
+      _RampType: 0
+      _ReceiveShadowsOff: 1
+      _ReflectionMapType: 1
+      _ReflectionSmoothness: 0.527
+      _RenderingMode: 2
+      _RimMax: 2
+      _RimMin: 1.18
+      _ShadowColorLightAtten: 1
+      _SingleIndirectColor: 0
+      _SmoothnessTextureChannel: 0
+      _SpecularHighlights: 1
+      _SpecularMapType: 0
+      _SpecularRoughness: 0.914
+      _SpecularToonSize: 1
+      _SpecularToonSmoothness: 1
+      _SpecularType: 1
+      _SrcBlend: 1
+      _UVSec: 0
+      _UseAlphaTest: 1
+      _UseEmission: 0
+      _UseFresnelReflections: 1
+      _UseMatCap: 0
+      _UseMatCapMask: 0
+      _UseMobileMode: 0
+      _UseNormalMap: 0
+      _UseOcclusion: 0
+      _UseOutline: 0
+      _UseReflections: 0
+      _UseRim: 1
+      _UseRimLightMask: 0
+      _UseShadowTexture: 0
+      _UseSpecular: 0
+      _UseWind: 1
+      _WavesFrequency: 1
+      _WavesHeight: 0.1
+      _WavesSpeed: 2
+      _WindScale: 2.62
+      _WindSpeed: 1.85
+      _WindStrength: 1
+      _ZWrite: 1
+      __dummy__: 0
+    m_Colors:
+      _AColor: {r: 1, g: 0, b: 0, a: 1}
+      _AOColor: {r: 0, g: 0, b: 0, a: 1}
+      _AOContrast: {r: -1.02, g: 0.85, b: 0, a: 0}
+      _Albedo: {r: 0, g: 0.5849056, b: 0.54507744, a: 1}
+      _AmbientColor: {r: 0.54384404, g: 0.35973656, b: 0.8113208, a: 1}
+      _BaseColor: {r: 1, g: 1, b: 1, a: 1}
+      _Color: {r: 1, g: 1, b: 1, a: 1}
+      _ColorG: {r: 0.8113208, g: 0.5593527, b: 0.23217025, a: 1}
+      _ColorR: {r: 0.588668, g: 0.72955966, b: 0.13077004, a: 1}
+      _EmissionColor: {r: 1, g: 1, b: 1, a: 1}
+      _HColor: {r: 0.67058825, g: 0.68235296, b: 0.827451, a: 1}
+      _MatCapColor: {r: 0.7075472, g: 0.7075472, b: 0.7075472, a: 1}
+      _OutlineColor: {r: 0, g: 0, b: 0, a: 1}
+      _ReflectionColor: {r: 0, g: 0.694859, b: 1, a: 1}
+      _RimColor: {r: 0.57861626, g: 0.41479996, b: 0.27111262, a: 0.5}
+      _SColor: {r: 0.32020643, g: 0.40284306, b: 0.645283, a: 1}
+      _SpecularColor: {r: 0.030885542, g: 0.030885542, b: 0.030885542, a: 1}
+      _WindDirection: {r: 1, g: 0, b: 0, a: 0}
+  m_BuildTextureStacks: []
+  m_AllowLocking: 0

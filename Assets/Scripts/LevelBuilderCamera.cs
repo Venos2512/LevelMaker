@@ -277,25 +277,8 @@ namespace LevelMaker
             }
         }
 
-        private void OnGUI()
-        {
-            GUIStyle style = new GUIStyle(GUI.skin.box);
-            style.fontSize = 10;
-            style.alignment = TextAnchor.UpperLeft;
-            style.normal.textColor = Color.white;
-            
-            string modeText = currentMode == CameraMode.Topdown ? "TOPDOWN" : "FREE";
-            string controls = currentMode == CameraMode.Topdown
-                ? "WASD: Pan\nScroll: Zoom\nMiddle Mouse: Drag"
-                : "Middle Mouse: Rotate\nWASD: Move\nSpace/Ctrl: Up/Down\nScroll: Zoom";
-            
-            string cameraHelp =
-                $"=== CAMERA ({modeText}) ===\n" +
-                $"Press Tab to toggle mode\n" +
-                $"\n{controls}\n" +
-                $"Shift: Move faster";
-            
-            GUI.Box(new Rect(Screen.width - 190, Screen.height - 150, 180, 140), cameraHelp, style);
-        }
+        // Help text now lives in the Canvas UI (LevelBuilderUI's help panel,
+        // toggled with F1). The old IMGUI overlay is removed to avoid clashing
+        // with the redesigned Canvas UI.
     }
 }

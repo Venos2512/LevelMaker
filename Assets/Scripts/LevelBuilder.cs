@@ -57,11 +57,25 @@ namespace LevelMaker
         private GameObject hoveredBlock;
 
         // Select/Drag state
-        private GameObject selectedBlock;
+        // selectedBlocks is the multi-select source of truth. selectedBlock is
+        // kept as a convenience alias for the single-block UI gizmo and stays
+        // in sync with selectedBlocks.FirstOrDefault().
+        private System.Collections.Generic.HashSet<GameObject> selectedBlocks = new System.Collections.Generic.HashSet<GameObject>();
+        private GameObject selectedBlock; // first member of selectedBlocks, or null
         private BlockMetadata selectedMetadata;
         private bool isDragging;
         private Vector3 dragOffset;
         private BlockMetadata dragOriginalMetadata;
+        private Vector3 dragStartMouse;   // position when mouse first went down
+        private const float DRAG_THRESHOLD_PIXELS = 5f;
+
+        // Modified state - any place/delete/move/rotate sets this; save clears it.
+        public bool IsModified { get; private set; } = false;
+        public System.Action OnModifiedChanged; // UI subscribes to this
+
+        // F1 help toggle
+        public bool ShowHelp { get; private set; } = false;
+        public System.Action OnHelpToggled;
 
         // Undo system
         private System.Collections.Generic.Stack<IUndoAction> undoHistory = new System.Collections.Generic.Stack<IUndoAction>();
@@ -134,139 +148,109 @@ namespace LevelMaker
                 eventObj.AddComponent<UnityEngine.EventSystems.StandaloneInputModule>();
             }
 
-            // Add the LevelBuilderUI component
+            // Add the LevelBuilderUI + Toast + Confirm components
             LevelBuilderUI ui = canvasObj.AddComponent<LevelBuilderUI>();
+            canvasObj.AddComponent<ToastUI>();
+            canvasObj.AddComponent<ConfirmDialog>();
 
             // Build UI elements at runtime
             BuildRuntimeUIElements(canvasObj.transform, ui);
 
-            Debug.Log("[LevelBuilder] Runtime UI created! Library panel on the right.");
+            Debug.Log("[LevelBuilder] Runtime UI created (Phase 1 + 2 layout).");
         }
 
         private void BuildRuntimeUIElements(Transform canvasTransform, LevelBuilderUI ui)
         {
-            // Top: 3 mode buttons
+            // Minimal runtime fallback UI - just the top bar + a compact debug line.
+            // For full features (library, level list, help, toast, confirm), run
+            // Tools > Level Maker > Reset Level Builder UI in the Editor.
             GameObject topPanel = CreateRuntimePanel("TopButtonsPanel", canvasTransform);
             RectTransform topRT = topPanel.GetComponent<RectTransform>();
             topRT.anchorMin = new Vector2(0.5f, 1f);
             topRT.anchorMax = new Vector2(0.5f, 1f);
             topRT.pivot = new Vector2(0.5f, 1f);
             topRT.anchoredPosition = new Vector2(0, -10);
-            topRT.sizeDelta = new Vector2(500, 40);
+            topRT.sizeDelta = new Vector2(720, 40);
             HorizontalLayoutGroup topHLG = topPanel.AddComponent<HorizontalLayoutGroup>();
             topHLG.spacing = 5;
             topHLG.childForceExpandWidth = true;
             topHLG.childForceExpandHeight = true;
 
-            Button buildBtn = CreateRuntimeButton("BuildBtn", "BUILD (B)", topPanel.transform, new Color(0.3f, 0.7f, 0.3f));
-            Button eraseBtn = CreateRuntimeButton("EraseBtn", "ERASE (E)", topPanel.transform, new Color(0.7f, 0.3f, 0.3f));
-            Button selectBtn = CreateRuntimeButton("SelectBtn", "SELECT (V)", topPanel.transform, new Color(0.7f, 0.7f, 0.3f));
+            Button buildBtn  = CreateRuntimeButton("BuildBtn", "BUILD (B)", topPanel.transform, new Color(0.30f, 0.70f, 0.35f));
+            Button eraseBtn  = CreateRuntimeButton("EraseBtn", "ERASE (X)", topPanel.transform, new Color(0.70f, 0.30f, 0.30f));
+            Button selectBtn = CreateRuntimeButton("SelectBtn", "SELECT (V)", topPanel.transform, new Color(0.70f, 0.70f, 0.30f));
+            Button saveBtn   = CreateRuntimeButton("SaveBtn", "SAVE", topPanel.transform, new Color(0.30f, 0.60f, 0.80f));
+            Button loadBtn   = CreateRuntimeButton("LoadBtn", "LOAD", topPanel.transform, new Color(0.50f, 0.40f, 0.80f));
+            Button libBtn    = CreateRuntimeButton("LibraryToggleBtn", "LIB (L)", topPanel.transform, new Color(0.40f, 0.50f, 0.65f));
+            Button helpBtn   = CreateRuntimeButton("HelpBtn", "HELP (F1)", topPanel.transform, new Color(0.55f, 0.55f, 0.55f));
 
-            // Right: Library panel
-            GameObject libPanel = CreateRuntimePanel("LibraryPanel", canvasTransform, false);
-            RectTransform libRT = libPanel.GetComponent<RectTransform>();
-            libRT.anchorMin = new Vector2(1, 0);
-            libRT.anchorMax = new Vector2(1, 1);
-            libRT.pivot = new Vector2(1, 1);
-            libRT.anchoredPosition = new Vector2(-10, -60);
-            // Use offsetMin/offsetMax for proper anchoring when stretched
-            libRT.offsetMin = new Vector2(-270, 10);   // 270px from right edge, 10 from bottom
-            libRT.offsetMax = new Vector2(-10, -60);   // 10px from right edge, 60 from top
-            VerticalLayoutGroup libVLG = libPanel.AddComponent<VerticalLayoutGroup>();
-            libVLG.padding = new RectOffset(5, 5, 5, 5);
-            libVLG.spacing = 2;
-            libVLG.childForceExpandWidth = true;
-            libVLG.childControlWidth = true;
-
-            // Library header
-            Text libHeader = CreateRuntimeText("LibHeader", "BLOCK LIBRARY (L)", libPanel.transform, 14, Color.cyan, FontStyle.Bold);
-            LayoutElement hdrLE = libHeader.gameObject.AddComponent<LayoutElement>();
-            hdrLE.preferredHeight = 22;
-
-            // Current selection indicator
-            Text currentSel = CreateRuntimeText("CurrentSel", "Selected: Cube", libPanel.transform, 12, Color.yellow, FontStyle.Bold);
-            LayoutElement selLE = currentSel.gameObject.AddComponent<LayoutElement>();
-            selLE.preferredHeight = 20;
-
-            // Library scroll view
-            GameObject scrollObj = new GameObject("LibraryScroll");
-            scrollObj.transform.SetParent(libPanel.transform, false);
-            RectTransform scrollRT = scrollObj.AddComponent<RectTransform>();
-            scrollRT.sizeDelta = new Vector2(0, 0);
-            Image scrollBg = scrollObj.AddComponent<Image>();
-            scrollBg.color = new Color(0, 0, 0, 0.4f);
-            ScrollRect scroll = scrollObj.AddComponent<ScrollRect>();
-            scroll.horizontal = false;
-            scroll.vertical = true;
-            LayoutElement scrollLE = scrollObj.AddComponent<LayoutElement>();
-            scrollLE.flexibleHeight = 1;
-
-            // Viewport
-            GameObject viewport = new GameObject("Viewport");
-            viewport.transform.SetParent(scrollObj.transform, false);
-            RectTransform vpRT = viewport.AddComponent<RectTransform>();
-            vpRT.anchorMin = Vector2.zero;
-            vpRT.anchorMax = Vector2.one;
-            vpRT.offsetMin = new Vector2(5, 5);
-            vpRT.offsetMax = new Vector2(-5, -5);
-            Image vpImg = viewport.AddComponent<Image>();
-            vpImg.color = new Color(0, 0, 0, 0.2f);
-            viewport.AddComponent<Mask>().showMaskGraphic = false;
-
-            // Content
-            GameObject content = new GameObject("Content");
-            content.transform.SetParent(viewport.transform, false);
-            RectTransform contentRT = content.AddComponent<RectTransform>();
-            contentRT.anchorMin = new Vector2(0, 1);
-            contentRT.anchorMax = new Vector2(1, 1);
-            contentRT.pivot = new Vector2(0.5f, 1f);
-            contentRT.anchoredPosition = Vector2.zero;
-            contentRT.sizeDelta = new Vector2(0, 0);
-            VerticalLayoutGroup contentVLG = content.AddComponent<VerticalLayoutGroup>();
-            contentVLG.padding = new RectOffset(3, 3, 3, 3);
-            contentVLG.spacing = 2;
-            contentVLG.childForceExpandWidth = true;
-            contentVLG.childControlWidth = true;
-            ContentSizeFitter fitter = content.AddComponent<ContentSizeFitter>();
-            fitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
-            scroll.viewport = vpRT;
-            scroll.content = contentRT;
-
-            // Create item template (hidden)
-            GameObject itemTpl = CreateRuntimeLibraryItemTemplate();
-            itemTpl.transform.SetParent(canvasTransform);
-            itemTpl.SetActive(false);
-
-            // Bottom-left: Debug panel
+            // Compact debug panel
             GameObject debugPanel = CreateRuntimePanel("DebugPanel", canvasTransform, false);
             RectTransform debugRT = debugPanel.GetComponent<RectTransform>();
             debugRT.anchorMin = new Vector2(0, 0);
             debugRT.anchorMax = new Vector2(0, 0);
             debugRT.pivot = new Vector2(0, 0);
             debugRT.anchoredPosition = new Vector2(10, 10);
-            debugRT.sizeDelta = new Vector2(280, 100);
-            VerticalLayoutGroup debugVLG = debugPanel.AddComponent<VerticalLayoutGroup>();
-            debugVLG.padding = new RectOffset(5, 5, 5, 5);
+            debugRT.sizeDelta = new Vector2(360, 28);
+            HorizontalLayoutGroup debugHLG = debugPanel.AddComponent<HorizontalLayoutGroup>();
+            debugHLG.padding = new RectOffset(8, 8, 0, 0);
+            debugHLG.spacing = 6;
+            debugHLG.childAlignment = TextAnchor.MiddleLeft;
+            debugHLG.childForceExpandWidth = false;
+            debugHLG.childForceExpandHeight = true;
+            debugHLG.childControlWidth = true;
+            debugHLG.childControlHeight = true;
 
-            Text modeText = CreateRuntimeText("ModeText", "Mode: Build", debugPanel.transform, 14, Color.white, FontStyle.Bold);
-            Text undoText = CreateRuntimeText("UndoText", "Undo: 0", debugPanel.transform, 12, Color.yellow, FontStyle.Normal);
-            Text helpText = CreateRuntimeText("HelpText", "B/E/V: Mode | L: Library\nCtrl+Z: Undo | Shift+RClick: Erase", debugPanel.transform, 10, Color.gray, FontStyle.Normal);
+            Text compact = CreateRuntimeText("DebugCompact", "Mode: Build | Blocks: 0 | Sel: 0", debugPanel.transform, 12, Color.white, FontStyle.Bold);
+            compact.alignment = TextAnchor.MiddleLeft;
+            LayoutElement cLE = compact.gameObject.AddComponent<LayoutElement>();
+            cLE.flexibleWidth = 1;
 
-            // Wire all references via reflection
+            // Wire all references via reflection (matches new LevelBuilderUI fields)
             var type = typeof(LevelBuilderUI);
             var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public;
             type.GetField("levelBuilder", flags)?.SetValue(ui, this);
             type.GetField("blockLibrary", flags)?.SetValue(ui, FindObjectOfType<BlockLibrary>());
+            type.GetField("toastUI", flags)?.SetValue(ui, ui.GetComponent<ToastUI>());
+            type.GetField("confirmDialog", flags)?.SetValue(ui, ui.GetComponent<ConfirmDialog>());
             type.GetField("buildButton", flags)?.SetValue(ui, buildBtn);
             type.GetField("eraseButton", flags)?.SetValue(ui, eraseBtn);
             type.GetField("selectButton", flags)?.SetValue(ui, selectBtn);
-            type.GetField("libraryPanel", flags)?.SetValue(ui, libPanel);
-            type.GetField("libraryContent", flags)?.SetValue(ui, content.transform);
-            type.GetField("libraryItemPrefab", flags)?.SetValue(ui, itemTpl);
-            type.GetField("currentModeText", flags)?.SetValue(ui, modeText);
-            type.GetField("debugText", flags)?.SetValue(ui, modeText);
-            type.GetField("currentSelectionText", flags)?.SetValue(ui, currentSel);
-            type.GetField("undoCountText", flags)?.SetValue(ui, undoText);
+            type.GetField("saveButton", flags)?.SetValue(ui, saveBtn);
+            type.GetField("loadButton", flags)?.SetValue(ui, loadBtn);
+            type.GetField("libraryToggleButton", flags)?.SetValue(ui, libBtn);
+            type.GetField("helpButton", flags)?.SetValue(ui, helpBtn);
+            type.GetField("debugPanel", flags)?.SetValue(ui, debugPanel);
+            type.GetField("debugCompactText", flags)?.SetValue(ui, compact);
+            type.GetField("currentLevelNameText", flags)?.SetValue(ui, compact); // reuse as fallback
+            type.GetField("currentSelectionText", flags)?.SetValue(ui, compact); // fallback
+            type.GetField("modeText", flags)?.SetValue(ui, compact); // fallback
+            type.GetField("undoCountText", flags)?.SetValue(ui, compact); // fallback
+        }
+
+        private GameObject CreateRuntimeLevelListItemTemplate()
+        {
+            GameObject item = new GameObject("LevelListItemTemplate");
+            RectTransform rt = item.AddComponent<RectTransform>();
+            rt.sizeDelta = new Vector2(380, 40);
+            Image bg = item.AddComponent<Image>();
+            bg.color = new Color(0.2f, 0.25f, 0.4f, 0.9f);
+            VerticalLayoutGroup vlg = item.AddComponent<VerticalLayoutGroup>();
+            vlg.padding = new RectOffset(8, 8, 4, 4);
+            vlg.spacing = 0;
+            vlg.childAlignment = TextAnchor.MiddleLeft;
+            vlg.childForceExpandWidth = true;
+            vlg.childForceExpandHeight = true;
+            vlg.childControlWidth = true;
+            vlg.childControlHeight = true;
+            LayoutElement le = item.AddComponent<LayoutElement>();
+            le.preferredHeight = 40;
+            le.minHeight = 36;
+
+            Text nameText = CreateRuntimeText("NameText", "LevelName", item.transform, 12, Color.white, FontStyle.Normal);
+            nameText.horizontalOverflow = HorizontalWrapMode.Wrap;
+            nameText.verticalOverflow = VerticalWrapMode.Truncate;
+            return item;
         }
 
         private GameObject CreateRuntimePanel(string name, Transform parent, bool raycastTarget = true)
@@ -344,6 +328,9 @@ namespace LevelMaker
 
         private void Update()
         {
+            // F1: toggle help overlay
+            if (Input.GetKeyDown(KeyCode.F1)) ToggleHelp();
+
             HandleModeSwitch();
             UpdateMouseHover();
             HandleInput();
@@ -352,9 +339,13 @@ namespace LevelMaker
 
         private void HandleModeSwitch()
         {
+            // B / V: switch between Build and Select
             if (Input.GetKeyDown(KeyCode.B)) SetMode(BuildMode.Build);
-            if (Input.GetKeyDown(KeyCode.E)) SetMode(BuildMode.Erase);
             if (Input.GetKeyDown(KeyCode.V)) SetMode(BuildMode.Select);
+            // X or Delete: jump to Erase mode (intuitive "I want to delete")
+            if (Input.GetKeyDown(KeyCode.X) || Input.GetKeyDown(KeyCode.Delete)) SetMode(BuildMode.Erase);
+            // Keep E as fallback mode switch when no block is selected (back-compat)
+            if (Input.GetKeyDown(KeyCode.E) && selectedBlock == null) SetMode(BuildMode.Erase);
         }
 
         public void SetMode(BuildMode mode)
@@ -739,6 +730,9 @@ namespace LevelMaker
                 Undo();
             }
 
+            // Q/E: rotate selected block by 90° around Y (Select mode only)
+            HandleRotationInput();
+
             // Skip scene input if pointer is over UI
             if (IsPointerOverUI()) return;
 
@@ -812,22 +806,111 @@ namespace LevelMaker
             }
         }
 
+        // Q: rotate -90° around Y, E: rotate +90° around Y. Skipped during a drag
+        // so a held mouse doesn't fight the keyboard input.
+        private void HandleRotationInput()
+        {
+            if (selectedBlock == null || isDragging) return;
+
+            if (Input.GetKeyDown(KeyCode.Q))
+            {
+                RotateSelectedBlock(-90f);
+            }
+            else if (Input.GetKeyDown(KeyCode.E))
+            {
+                RotateSelectedBlock(90f);
+            }
+        }
+
+        /// <summary>
+        /// Snap-rotate the selected block by `angle` degrees around the Y axis.
+        /// Y rotation swaps X and Z in the grid footprint (e.g. 2x1x1 -> 1x1x2),
+        /// so we re-occupy cells when the size changes. 1x1x1 blocks keep the same
+        /// footprint and only their visual rotation changes.
+        /// </summary>
+        private void RotateSelectedBlock(float angle)
+        {
+            if (selectedBlock == null) return;
+
+            Vector3Int oldGridPos = selectedMetadata.gridPosition;
+            Vector3Int oldGridSize = selectedMetadata.gridSize;
+            Quaternion oldRot = selectedBlock.transform.rotation;
+            string blockType = selectedMetadata.blockType;
+
+            // Snap rotation to the nearest 90° on Y - prevents float drift after
+            // many presses (e.g. 0, 90, 180, 270, 0) and stays consistent with
+            // grid snapping in the rest of the system.
+            float newYAngle = Mathf.RoundToInt((oldRot.eulerAngles.y + angle) / 90f) * 90f;
+            Quaternion newRot = Quaternion.Euler(0, newYAngle, 0);
+
+            // 90° Y rotation swaps the X and Z extents in the grid.
+            Vector3Int newGridSize = new Vector3Int(oldGridSize.z, oldGridSize.y, oldGridSize.x);
+
+            selectedBlock.transform.rotation = newRot;
+
+            if (newGridSize != oldGridSize)
+            {
+                // Drop the old footprint and reclaim cells with the new size.
+                // The metadata stored on the block is overwritten by OccupyCells.
+                gridManager.FreeCells(selectedBlock);
+                gridManager.OccupyCells(oldGridPos, newGridSize, selectedBlock, blockType);
+                selectedMetadata = new BlockMetadata(oldGridPos, newGridSize, blockType);
+            }
+
+            MarkModified();
+            RecordUndo(new RotateBlockAction(
+                gridManager, selectedBlock,
+                oldRot, newRot,
+                oldGridPos,
+                oldGridSize, newGridSize,
+                blockType));
+        }
+
         private void HandleSelectInput()
         {
             if (isDragging)
             {
                 HandleDragging();
+                return;
             }
-            else
+
+            // Mouse down: record start position for drag-threshold check
+            if (Input.GetMouseButtonDown(0) && isMouseOverGrid)
             {
-                if (Input.GetMouseButtonDown(0) && isMouseOverGrid && hoveredBlock != null)
+                dragStartMouse = Input.mousePosition;
+                if (hoveredBlock != null)
                 {
-                    SelectBlock(hoveredBlock);
+                    bool shift = Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
+                    if (shift)
+                    {
+                        // Shift+click: toggle block in multi-select set
+                        ToggleSelection(hoveredBlock);
+                    }
+                    else
+                    {
+                        if (!selectedBlocks.Contains(hoveredBlock))
+                        {
+                            SetSelected(hoveredBlock);
+                        }
+                        // If already selected, fall through to drag-attempt below
+                    }
                 }
-                if (Input.GetMouseButtonDown(0) && selectedBlock != null)
+            }
+
+            // Mouse held: if we passed the drag threshold, start dragging
+            if (Input.GetMouseButton(0) && selectedBlock != null && dragStartMouse != Vector3.zero)
+            {
+                if (Vector2.Distance(dragStartMouse, Input.mousePosition) > DRAG_THRESHOLD_PIXELS)
                 {
                     TryStartDrag();
+                    dragStartMouse = Vector3.zero;
                 }
+            }
+
+            // Mouse up: clear drag-start state
+            if (Input.GetMouseButtonUp(0))
+            {
+                dragStartMouse = Vector3.zero;
             }
         }
 
@@ -843,7 +926,99 @@ namespace LevelMaker
         private void Deselect()
         {
             if (isDragging) CancelDrag();
+            selectedBlocks.Clear();
             selectedBlock = null;
+            selectedMetadata = default;
+        }
+
+        /// <summary>
+        /// Replace the current selection with a single block. Use ToggleSelection
+        /// to add/remove individual blocks for multi-select.
+        /// </summary>
+        public void SetSelected(GameObject block)
+        {
+            selectedBlocks.Clear();
+            if (block != null)
+            {
+                selectedBlocks.Add(block);
+                selectedBlock = block;
+                if (gridManager.TryGetBlockMetadata(block, out BlockMetadata meta)) selectedMetadata = meta;
+            }
+            else
+            {
+                selectedBlock = null;
+                selectedMetadata = default;
+            }
+        }
+
+        /// <summary>
+        /// Shift-click helper: add to or remove from the selection set.
+        /// </summary>
+        public void ToggleSelection(GameObject block)
+        {
+            if (block == null) return;
+            if (selectedBlocks.Contains(block))
+            {
+                selectedBlocks.Remove(block);
+            }
+            else
+            {
+                selectedBlocks.Add(block);
+            }
+            // Keep selectedBlock aligned with the first member for legacy single-block gizmo code
+            if (selectedBlocks.Count == 0)
+            {
+                selectedBlock = null;
+                selectedMetadata = default;
+            }
+            else
+            {
+                selectedBlock = null;
+                foreach (var b in selectedBlocks) { selectedBlock = b; break; }
+                if (selectedBlock != null && gridManager.TryGetBlockMetadata(selectedBlock, out BlockMetadata meta))
+                {
+                    selectedMetadata = meta;
+                }
+            }
+        }
+
+        public System.Collections.Generic.IReadOnlyCollection<GameObject> GetSelection() => selectedBlocks;
+        public int GetSelectionCount() => selectedBlocks.Count;
+
+        /// <summary>
+        /// Mark the level as modified. Call after any Place/Delete/Rotate/Move.
+        /// Notifies OnModifiedChanged subscribers (the UI shows the * indicator).
+        /// </summary>
+        public void MarkModified()
+        {
+            if (IsModified) return;
+            IsModified = true;
+            OnModifiedChanged?.Invoke();
+        }
+
+        public void ClearModified()
+        {
+            if (!IsModified) return;
+            IsModified = false;
+            OnModifiedChanged?.Invoke();
+        }
+
+        public void ToggleHelp()
+        {
+            ShowHelp = !ShowHelp;
+            OnHelpToggled?.Invoke();
+        }
+
+        /// <summary>
+        /// Explicitly set the help panel state. Used by the close button to
+        /// turn help off without toggling; only fires the event if the state
+        /// actually changes so we don't churn UI for no-op clicks.
+        /// </summary>
+        public void SetHelp(bool visible)
+        {
+            if (ShowHelp == visible) return;
+            ShowHelp = visible;
+            OnHelpToggled?.Invoke();
         }
 
         private void TryStartDrag()
@@ -909,6 +1084,7 @@ namespace LevelMaker
         {
             isDragging = false;
             dragIndicator.SetActive(false);
+            MarkModified();
         }
 
         private void CancelDrag()
@@ -1034,6 +1210,7 @@ namespace LevelMaker
 
             // Record undo action
             RecordUndo(new PlaceBlockAction(gridManager, obj, gridHoverPosition, currentBlockSize));
+            MarkModified();
         }
 
         private void ReplaceBlock(GameObject oldBlock)
@@ -1081,6 +1258,7 @@ namespace LevelMaker
 
             // Record undo: replace = delete old + place new
             RecordUndo(new ReplaceBlockAction(gridManager, oldBlock, newBlock, oldMetadata.gridPosition, currentBlockSize, blockTypeName));
+            MarkModified();
         }
 
         private void DeleteBlock(GameObject block)
@@ -1102,6 +1280,7 @@ namespace LevelMaker
 
                 // Record undo action
                 RecordUndo(new DeleteBlockAction(gridManager, block, pos, size, type));
+                MarkModified();
             }
         }
 
@@ -1217,6 +1396,49 @@ namespace LevelMaker
                     {
                         gridManager.OccupyCells(meta.gridPosition, meta.gridSize, oldBlock, meta.blockType);
                     }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Undo entry for a Q/E rotation. Restores the previous transform and
+        /// reclaims the original grid footprint when the rotation changed size.
+        /// </summary>
+        private class RotateBlockAction : IUndoAction
+        {
+            private GridManager gridManager;
+            private GameObject block;
+            private Quaternion oldRotation;
+            private Quaternion newRotation;
+            private Vector3Int gridPosition;
+            private Vector3Int oldSize;
+            private Vector3Int newSize;
+            private string blockType;
+
+            public RotateBlockAction(GridManager gm, GameObject b,
+                Quaternion oldR, Quaternion newR,
+                Vector3Int pos,
+                Vector3Int oldS, Vector3Int newS,
+                string type)
+            {
+                gridManager = gm;
+                block = b;
+                oldRotation = oldR;
+                newRotation = newR;
+                gridPosition = pos;
+                oldSize = oldS;
+                newSize = newS;
+                blockType = type;
+            }
+
+            public void Undo()
+            {
+                if (block == null) return;
+                block.transform.rotation = oldRotation;
+                if (oldSize != newSize)
+                {
+                    gridManager.FreeCells(block);
+                    gridManager.OccupyCells(gridPosition, oldSize, block, blockType);
                 }
             }
         }
