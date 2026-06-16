@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(git config *)"
+      "Bash(git config *)",
+      "Bash(git commit -m 'Add comprehensive UX improvements: schema v2, multi-select, library pagination, batch tools *)",
+      "Bash(git push *)"
     ]
   }
 }
